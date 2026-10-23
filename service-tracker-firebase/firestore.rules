@@ -1,0 +1,127 @@
+rules_version = '2';
+
+// =====================================================================
+//  Service Tracker — reglas de seguridad de Cloud Firestore
+//
+//  QUÉ GARANTIZAN (las aplica el servidor de Google, no la app):
+//   1. Existe UNA sola cuenta de administrador. Solo puede crearla el
+//      correo que pongas abajo, con el correo CONFIRMADO, y una vez creada
+//      nadie puede crear, reemplazar ni borrar al administrador.
+//   2. Cada taller solo puede leer y escribir SUS datos. Nunca los de otro.
+//   3. Si un taller está bloqueado o su suscripción/prueba venció,
+//      Firestore le niega la lectura y escritura de sus datos.
+//   4. Un taller no puede cambiarse sus propias fechas de suscripción,
+//      su código, ni ampliar su prueba (solo el administrador).
+//   5. Cada cuenta crea como máximo un taller, con prueba gratis limitada.
+//
+//  ANTES DE PUBLICAR: cambia la línea marcada con  <<<<<  por TU correo.
+// =====================================================================
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // <<<<< CAMBIA ESTE CORREO (en minúsculas): es la ÚNICA cuenta de administrador
+    function adminEmail() { return 'admin@tudominio.com'; }
+
+    function signedIn() { return request.auth != null; }
+
+    function adminPath() { return /databases/$(database)/documents/config/admin; }
+    function adminExists() { return exists(adminPath()); }
+    function isAdmin() {
+      return signedIn() && adminExists() && get(adminPath()).data.uid == request.auth.uid;
+    }
+    // La cuenta del correo autorizado, con el correo ya confirmado
+    function isAdminEmail() {
+      return signedIn()
+        && request.auth.token.email == adminEmail()
+        && request.auth.token.email_verified == true;
+    }
+
+    function profilePath() { return /databases/$(database)/documents/users/$(request.auth.uid); }
+    function shopPath(shopId) { return /databases/$(database)/documents/shops/$(shopId); }
+    function memberOf(shopId) {
+      return signedIn() && exists(profilePath()) && get(profilePath()).data.shopId == shopId;
+    }
+    // Taller activo y con suscripción/prueba vigente
+    function shopOpen(shopId) {
+      return get(shopPath(shopId)).data.active == true
+        && request.time <= get(shopPath(shopId)).data.accessUntil;
+    }
+    function memberOpen(shopId) { return memberOf(shopId) && shopOpen(shopId); }
+
+    // Registro de cuenta nueva: UNA sola operación crea shops/{id}, users/{uid},
+    // codes/{código} y los datos iniciales.
+    function signupInit(shopId) {
+      return signedIn()
+        && !exists(shopPath(shopId))
+        && getAfter(shopPath(shopId)).data.ownerUid == request.auth.uid
+        && getAfter(profilePath()).data.shopId == shopId;
+    }
+
+    // ---------- Configuración global ----------
+    match /config/public {
+      allow get: if true;                                   // la pantalla de ingreso necesita saber si ya hay administrador
+      allow create: if isAdminEmail() && !adminExists();    // se crea junto con config/admin, una sola vez
+      allow update: if isAdmin();
+      allow delete, list: if false;
+    }
+    match /config/admin {
+      allow get: if signedIn();
+      allow create: if isAdminEmail() && !adminExists()
+                    && request.resource.data.uid == request.auth.uid
+                    && request.resource.data.email == adminEmail();
+      allow update: if isAdmin() && request.resource.data.uid == resource.data.uid;
+      allow delete, list: if false;                         // el administrador nunca se reemplaza ni se borra
+    }
+    match /config/billing {
+      allow get: if signedIn();
+      allow write: if isAdmin();
+    }
+    match /config/rate {
+      allow get: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    // ---------- Códigos de taller (únicos) ----------
+    match /codes/{code} {
+      allow get: if isAdmin();
+      allow create: if signedIn()
+        && getAfter(shopPath(request.resource.data.shopId)).data.code == code
+        && (getAfter(shopPath(request.resource.data.shopId)).data.ownerUid == request.auth.uid || isAdmin());
+      allow delete: if isAdmin();
+      allow update, list: if false;
+    }
+
+    // ---------- Perfil de cada cuenta: a qué taller pertenece ----------
+    match /users/{uid} {
+      allow get: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow list: if isAdmin();
+      allow create: if signedIn() && (
+        ( request.auth.uid == uid
+          && !isAdminEmail()
+          && request.resource.data.keys().hasOnly(['shopId', 'name', 'email'])
+          && getAfter(shopPath(request.resource.data.shopId)).data.ownerUid == request.auth.uid )
+        || isAdmin() );
+      allow update, delete: if isAdmin();                   // nadie cambia su propio taller
+    }
+
+    // ---------- Talleres ----------
+    match /shops/{shopId} {
+      allow get: if isAdmin() || memberOf(shopId);
+      allow list: if isAdmin();
+      allow create: if signedIn() && (
+        ( request.resource.data.ownerUid == request.auth.uid
+          && request.resource.data.active == true
+          && request.resource.data.sub.paid == false
+          && request.resource.data.sub.courtesy == false
+          && request.resource.data.accessUntil <= request.time + duration.value(62, 'd')
+          && getAfter(profilePath()).data.shopId == shopId )
+        || isAdmin() );
+      allow update, delete: if isAdmin();                   // suscripción, código, bloqueo: solo el administrador
+
+      // Datos del taller (clientes, servicios, facturas…) guardados por fragmentos
+      match /data/{docId} {
+        allow read, write: if signupInit(shopId) || memberOpen(shopId) || isAdmin();
+      }
+    }
+  }
+}
