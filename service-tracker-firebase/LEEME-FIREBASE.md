@@ -7,7 +7,9 @@ dispositivos, y las reglas de seguridad **las aplica el servidor de Google**, no
 | Archivo | Para qué sirve |
 |---|---|
 | `index.html` | La aplicación (la misma de siempre; usa Firebase cuando `firebase-config.js` está completo). |
-| `firebase-config.js` | **Lo único que editas**: datos de tu proyecto Firebase y el correo del administrador. |
+| `LEEME-GOOGLE.md` | Guía del ingreso con Google (datos, pasos y códigos; incluye lo de SHA-1/SHA-256). |
+| `configurar.html` | **Atajo recomendado**: ábrelo en tu navegador, pega tu `firebaseConfig` y tu correo, y descarga `firebase-config.js`, `firestore.rules` y `.firebaserc` ya listos (no envía nada a internet). |
+| `firebase-config.js` | Datos de tu proyecto Firebase y correo del administrador (la herramienta anterior lo genera por ti). |
 | `firestore.rules` | Reglas de seguridad (administrador único, aislamiento por taller, suscripción). **Editas 1 línea.** |
 | `firestore.indexes.json` | Índices de Firestore (vacío: no se necesitan). |
 | `firebase.json`, `.firebaserc` | Para publicar reglas y/o el sitio con la herramienta de Firebase (opcional). |
@@ -18,7 +20,7 @@ dispositivos, y las reglas de seguridad **las aplica el servidor de Google**, no
 | Dato | Dónde se obtiene | Dónde se pone |
 |---|---|---|
 | `apiKey`, `authDomain`, `projectId` (y los opcionales `storageBucket`, `messagingSenderId`, `appId`) | Firebase → ⚙ Configuración del proyecto → *Tus apps* → app web `</>` → “Configuración del SDK” | `firebase-config.js` |
-| Correo del administrador (en **minúsculas**) | El tuyo | `firebase-config.js` (`adminEmail`) **y** `firestore.rules` (línea `adminEmail()`), idénticos |
+| Correo del administrador (en **minúsculas**) | Ya viene: `admin.servicetracker@gmail.com` | `firebase-config.js` (`adminEmail`) **y** `firestore.rules` (línea `adminEmail()`), idénticos |
 
 > `apiKey` **no es una contraseña**: solo identifica el proyecto. Lo que protege tus datos son las reglas.
 > No necesitas claves de servicio, ni tokens, ni variables de entorno.
@@ -29,21 +31,24 @@ dispositivos, y las reglas de seguridad **las aplica el servidor de Google**, no
    (Deja desactivado “Acceso con vínculo por correo” y los demás proveedores.)
 3. **Crea la base de datos**: *Firestore Database* → *Crear base de datos* → **modo de producción** → elige región cercana (p. ej. `us-east1`).
 4. **Registra la app web**: ⚙ Configuración del proyecto → *Tus apps* → `</>` → ponle un nombre → copia el objeto `firebaseConfig`.
-5. **Edita `firebase-config.js`**: pega esos valores y escribe tu `adminEmail` (minúsculas).
-6. **Edita `firestore.rules`**: en la línea marcada `<<<<<`, cambia `admin@tudominio.com` por **el mismo** correo.
+5. **Genera tus archivos**: abre `configurar.html`, pega el `firebaseConfig` y escribe el correo del administrador; descarga los 3 archivos y reemplaza los de la carpeta. (A mano: edita `firebase-config.js` con esos valores y tu `adminEmail` en minúsculas.)
+6. **Reglas**: si usaste `configurar.html`, `firestore.rules` ya trae tu correo. (A mano: en la línea marcada `<<<<<`, cambia el correo por **el mismo** que pongas en `firebase-config.js`.)
 7. **Publica las reglas**: *Firestore Database* → pestaña *Reglas* → pega el contenido de `firestore.rules` → **Publicar**.
    (O con la herramienta: `npm i -g firebase-tools && firebase login && firebase deploy --only firestore:rules`, tras poner tu proyecto en `.firebaserc`.)
 8. **Autoriza tu dominio**: *Authentication* → *Configuración* → *Dominios autorizados* → agrega tu dirección de Netlify (`algo.netlify.app`) o tu dominio propio.
 9. **Publica el sitio**: arrastra esta carpeta a Netlify (*Add new site → Deploy manually*) **o** `firebase deploy --only hosting`.
-10. **Crea el administrador — hazlo tú, primero**: abre el sitio. Verás “Configuración inicial” con tu correo ya fijado.
-    Completa los datos → te llega un correo de confirmación → ábrelo → vuelve y pulsa **“Ya confirmé mi correo”**.
-    Desde ese momento **nadie más puede crear una cuenta de administrador** (ver abajo).
+10. **Crea la cuenta del administrador en la consola de Firebase — hazlo ANTES de publicar o compartir el sitio**:
+    *Authentication → Usuarios → Agregar usuario* → correo `admin.servicetracker@gmail.com` y la contraseña que quieras (puedes cambiarla luego en *Mi cuenta*).
+    La app **no tiene ninguna pantalla para crear administradores**. Después entra al sitio con ese correo y contraseña (**sin código de taller**):
+    la primera vez te envía un correo de confirmación; ábrelo, vuelve y pulsa **“Ya confirmé mi correo”**. Se inicializa todo solo
+    (administrador, configuración y un primer taller “Mi taller”) y aterrizas en el panel *Talleres*.
 11. *(Opcional)* *Authentication → Plantillas*: pon los correos de verificación y de restablecimiento en español.
 
 ## Cómo queda la regla “solo una cuenta de administrador”
-- La cuenta de administrador solo puede crearla **el correo que pusiste en `adminEmail`**, y **solo con ese correo ya confirmado**
-  (un desconocido que se registre con tu correo antes que tú no puede confirmarlo, así que no puede tomar el control).
-- Una vez creada, el servidor **rechaza** crear otra, reemplazarla o borrarla. El formulario de “Crear cuenta nueva” rechaza ese correo.
+- **No existe ninguna pantalla ni botón para crear administradores**, en ningún navegador. El administrador entra con su correo y contraseña, **sin código de taller**.
+- La cuenta de administrador solo puede inicializarse con **el correo fijado en `adminEmail`, ya confirmado**; como lo creas tú en la consola antes de publicar, nadie más puede registrarlo (Firebase rechaza correos repetidos) ni confirmarlo.
+- Una vez inicializada, el servidor **rechaza** crear otra, reemplazarla o borrarla. El formulario “Crear cuenta nueva” rechaza ese correo.
+- *(Avanzado/pruebas)* `allowSetup: true` en `firebase-config.js` vuelve a mostrar la pantalla de crear administrador; **déjalo sin poner** en producción.
 - Todas las demás cuentas son usuarios normales: o se registran solas (cada una crea **un** taller con prueba gratis), o las crea el administrador.
 
 ## Qué se guarda y dónde (modelo de datos)
@@ -78,7 +83,7 @@ aislamiento entre talleres, bloqueo/vencimiento, alta de cuentas y que no se pue
 **A mano**: crea 2 cuentas con “Crear cuenta nueva” y comprueba que una no ve los datos de la otra; bloquea una desde *Suscripciones* y verifica que se bloquea en vivo.
 
 ## Qué se probó y qué no (importante)
-- **Probado**: todo el flujo de la app en modo nube (configuración inicial con confirmación de correo, registro, ingreso con código, aislamiento, bloqueo y vencimiento en vivo, pagos, usuarios creados por el administrador, dos dispositivos sincronizados, cambio y recuperación de contraseña) y con la política de seguridad de `netlify.toml`.
+- **Probado**: todo el flujo de la app en modo nube (administrador creado en consola e inicializado con confirmación de correo, registro, ingreso con código, aislamiento, bloqueo y vencimiento en vivo, pagos, usuarios creados por el administrador, dos dispositivos sincronizados, cambio y recuperación de contraseña) y con la política de seguridad de `netlify.toml`.
   Se hizo contra **un simulador local de Firebase que aplica las mismas reglas**, porque desde el entorno de desarrollo no hay conexión a Internet.
 - **No probado**: contra un proyecto real de Firebase (ni el SDK real, ni la sintaxis de `firestore.rules` en el motor de Google, ni los correos reales). Por eso incluí `tests/rules.test.js` y la lista de arriba: **ejecútalos una vez** antes de usar datos reales.
 

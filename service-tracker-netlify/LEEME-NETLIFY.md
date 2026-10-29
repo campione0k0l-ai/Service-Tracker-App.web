@@ -43,7 +43,7 @@ netlify deploy --prod --dir . --site "$NETLIFY_SITE_ID" --auth "$NETLIFY_AUTH_TO
    (Alternativa: usa `.github/workflows/deploy.yml` y crea los secretos `NETLIFY_AUTH_TOKEN` y `NETLIFY_SITE_ID` en *Settings → Secrets and variables → Actions*.)
 
 ## Después de publicar
-1. Abre tu dirección `https://…netlify.app`. La primera vez aparece **“Primer inicio”**: ahí se crea la cuenta de administrador y el primer taller. **Hazlo tú mismo antes de compartir el enlace** y guarda tu clave de recuperación.
+1. Abre tu dirección `https://…netlify.app`. **No hay pantalla para crear administradores**: el administrador ya viene integrado (correo `admin.servicetracker@gmail.com`) y entra **sin código de taller**. La contraseña no está escrita en el archivo (solo su huella cifrada); **cámbiala en *Mi cuenta* apenas entres** y guarda tu clave de recuperación.
 2. En *Ajustes* define tus datos y descarga un **respaldo** de vez en cuando.
 3. Dominio propio: *Domain management → Add a domain*. El HTTPS es automático y gratuito.
 

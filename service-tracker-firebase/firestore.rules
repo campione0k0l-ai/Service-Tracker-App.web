@@ -14,13 +14,14 @@ rules_version = '2';
 //      su código, ni ampliar su prueba (solo el administrador).
 //   5. Cada cuenta crea como máximo un taller, con prueba gratis limitada.
 //
-//  ANTES DE PUBLICAR: cambia la línea marcada con  <<<<<  por TU correo.
+//  El correo del administrador ya viene configurado (línea marcada con  <<<<<).
+//  Si quieres otro, cámbialo aquí y en firebase-config.js (mismo correo, en minúsculas).
 // =====================================================================
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // <<<<< CAMBIA ESTE CORREO (en minúsculas): es la ÚNICA cuenta de administrador
-    function adminEmail() { return 'admin@tudominio.com'; }
+    // <<<<< Correo (en minúsculas) de la ÚNICA cuenta de administrador
+    function adminEmail() { return 'admin.servicetracker@gmail.com'; }
 
     function signedIn() { return request.auth != null; }
 

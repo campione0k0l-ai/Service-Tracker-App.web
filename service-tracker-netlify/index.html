@@ -93,6 +93,8 @@ main{padding:28px clamp(16px,3vw,40px) 60px;min-width:0}
 .pweye{position:absolute;right:3px;top:50%;transform:translateY(-50%);width:38px;height:34px;display:flex;align-items:center;justify-content:center;background:transparent;border:0;border-radius:6px;color:var(--mute);cursor:pointer;padding:0}
 .pweye:hover,.pweye:focus-visible{color:var(--ink);background:#e9eef7;outline:none}
 .pweye[aria-pressed=true]{color:var(--brand,#2f6fd1)}
+.gsep{display:flex;align-items:center;gap:10px;color:var(--mute);font-size:13px;margin:2px 0}.gsep:before,.gsep:after{content:'';flex:1;height:1px;background:var(--line,#d9e1ee)}
+.gbtn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;padding:9px 14px;border:1px solid #c9d3e3;border-radius:6px;background:#fff;color:#1f2a3c;font-weight:600;cursor:pointer}.gbtn:hover{background:#f6f8fc}
 .authcard h3.sub{font-size:15px;margin:6px 0 -4px;color:var(--mute)}
 .code{font-family:ui-monospace,Menlo,Consolas,monospace;font-weight:700;letter-spacing:.06em;background:var(--soft,#eef2f8);padding:2px 8px;border-radius:6px;white-space:nowrap}
 .chart{width:100%;height:auto;display:block;margin-top:8px}
@@ -320,7 +322,16 @@ const memStore={};
 const CFG=(typeof window!=='undefined'&&window.ST_CLOUD)||{};
 const FBCFG=CFG.firebase||{};
 const CLOUD=!!(FBCFG.apiKey&&FBCFG.projectId&&!/^(TU_|YOUR_|PEGA|REEMPLAZA)/i.test(String(FBCFG.apiKey)));
-const ADMIN_EMAIL=(a=>/@tudominio\.com$/.test(a)?'':a)(String(CFG.adminEmail||'').trim().toLowerCase());
+const ALLOW_SETUP=!!CFG.allowSetup;   /* solo para pruebas/instalaciones propias: vuelve a mostrar la pantalla de "crear administrador" */
+const BUILTIN={email:'admin.servicetracker@gmail.com',name:'Administrador',salt:'st-admin-9d41c7e0b3',hash:'2d926b5b408abe7fd3aa8692b302ad69380f1c17e8ebdda798b01799577125f5',hashAlt:'f21a456e0'};
+const ADMIN_EMAIL=(a=>/@tudominio\.com$/.test(a)?'':a)(String(CFG.adminEmail||(ALLOW_SETUP?'':BUILTIN.email)).trim().toLowerCase());
+/* Credenciales integradas del administrador (modo local): solo se guarda el hash, nunca la contraseña */
+const ADMIN_CRED=(()=>{
+  if(ALLOW_SETUP||CLOUD||!ADMIN_EMAIL)return null;
+  if(CFG.adminHash&&CFG.adminSalt)return {email:ADMIN_EMAIL,name:BUILTIN.name,salt:CFG.adminSalt,hash:CFG.adminHash,hashAlt:CFG.adminHashAlt||''};
+  if(ADMIN_EMAIL===BUILTIN.email)return BUILTIN;
+  return null;
+})();
 let fbApp=null,fauth=null,fdb=null,fbAux=null;
 const cloud={loading:false,error:'',ver:0,lastHashes:[],lastRec:{},lastCode:{},lastBilling:'',lastAdminName:'',dirty:false,busy:false,timer:null,mTimer:null,mBusy:false,mAgain:false,unsub:[],rate:null,pending:null,pub:null,clientId:'',retry:0,again:false};
 const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>Array.from(r.querySelectorAll(s));
@@ -536,8 +547,24 @@ function loadMaster(){
   let m=null;
   try{const r=lsGet(MKEY);if(r){const j=JSON.parse(r);if(j&&Array.isArray(j.shops))m=j}}catch(e){}
   if(!m)m=migrateV2()||{v:4,admin:null,shops:[]};
-  if(ensureMaster(m)&&m.admin)lsSet(MKEY,JSON.stringify(m));
+  let ch=ensureMaster(m);
+  if(ensureBuiltinAdmin(m))ch=true;
+  if(ensureFirstShop(m))ch=true;
+  if(ch&&m.admin)lsSet(MKEY,JSON.stringify(m));
   return m;
+}
+/* La cuenta de administrador es una sola y viene integrada: si el navegador no la tiene (o tiene otra), se coloca esta. */
+function ensureBuiltinAdmin(m){
+  if(!ADMIN_CRED)return false;
+  if(m.admin&&(m.admin.email||'').toLowerCase()===ADMIN_CRED.email)return false;
+  m.admin=Object.assign({},m.admin||{},{id:'__admin__',name:(m.admin&&m.admin.name)||ADMIN_CRED.name,email:ADMIN_CRED.email,username:ADMIN_CRED.email,salt:ADMIN_CRED.salt,hash:ADMIN_CRED.hash,hashAlt:ADMIN_CRED.hashAlt||'',role:'admin',perms:{},active:true,mustChange:false,recHash:'',recSalt:''});
+  return true;
+}
+function ensureFirstShop(m){
+  if(!ADMIN_CRED||(m.shops||[]).length)return false;
+  const rec=newShopRecord('Mi taller',genShopCode());rec.sub=newSub(true,m);
+  const d=empty();d.shop.name=rec.name;
+  lsSet(SPFX+rec.id,JSON.stringify(d));(m.shops=m.shops||[]).push(rec);return true;
 }
 function ensureMaster(m){
   let ch=false;
@@ -598,7 +625,7 @@ function openShop(id){
   const rec=M.shops.find(x=>x.id===id);if(!rec)return false;
   const d=loadShopData(id);if(!d)return false;
   if(curShopId&&curShopId!==id)save();
-  S=d;curShopId=id;curRec=rec;resetUi();return true;
+  S=d;curShopId=id;curRec=rec;resetUi();try{localStorage.setItem('st-local-last',id)}catch(e){}return true;
 }
 function closeShop(){if(curShopId&&!CLOUD)save();S=empty();curShopId=null;curRec=null;resetUi()}
 function bootStore(){
@@ -742,6 +769,7 @@ function go(v,o){
 function render(){
   const authEl=$('#auth'),appEl=$('#app');
   if(CLOUD&&cloud.loading){appEl.hidden=true;authEl.hidden=false;authEl.innerHTML='<div class="authcard"><h1>Service Tracker</h1><p>'+esc(cloud.error||'Conectando…')+'</p></div>';return}
+  if(CLOUD&&authMode==='verify'&&cloud.pending){appEl.hidden=true;authEl.hidden=false;authEl.innerHTML=verifyHTML();return}
   if(!M.admin){appEl.hidden=true;authEl.hidden=false;authEl.innerHTML=setupHTML();return}
   const u=me();
   if(!u){appEl.hidden=true;authEl.hidden=false;authEl.innerHTML=authMode==='recover'?recoverHTML():authMode==='signup'?signupHTML():loginHTML();return}
@@ -788,11 +816,11 @@ function loginHTML(){
   const n0=M.codeNotice&&M.shops[0]?M.shops[0]:null;
   const notice=n0?`<div class="note" style="margin:0 0 12px"><span>🔑 <b>Novedad:</b> ahora cada taller tiene un código de acceso. El de <b>${esc(n0.name)}</b> es <b class="code">${esc(showCode(n0.code))}</b>. Guárdalo y compártelo con tu equipo: hay que escribirlo para entrar. El administrador también lo ve en el panel Talleres.</span><button type="button" class="btn sm" data-act="hideCodeNotice">Entendido</button></div>`:'';
   return `<form class="authcard" id="loginForm" novalidate>
- <h1>Service Tracker</h1><p>Ingresa el código de tu taller, tu correo y tu contraseña.</p>${notice}
+ <h1>Service Tracker</h1><p>Ingresa el código de tu taller, tu correo y tu contraseña. <span class="hint">El administrador no necesita código.</span></p>${notice}
  ${fld('Código del taller','code','','text','autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Ej. K7M2-QX9P" style="text-transform:uppercase;letter-spacing:.08em"')}
  ${fld('Correo electrónico','email','','email','autocomplete="email" autocapitalize="none" placeholder="correo@ejemplo.com"')}
  ${fld('Contraseña','pw','','password','autocomplete="current-password"')}
- <button class="btn primary" type="submit">Entrar</button><button type="button" class="btn ghost" data-act="showRecover">¿Olvidaste tu contraseña?</button><button type="button" class="btn ghost" data-act="showSignup">Crear cuenta nueva · ${trialDays()} días gratis</button></form>`}
+ <button class="btn primary" type="submit">Entrar</button>${googleBtn('googleLogin','Continuar con Google')}<button type="button" class="btn ghost" data-act="showRecover">¿Olvidaste tu contraseña?</button><button type="button" class="btn ghost" data-act="showSignup">Crear cuenta nueva · ${trialDays()} días gratis</button></form>`}
 async function doSetup(f){
   if(M.admin)return toast('Ya existe la cuenta de administrador; no se puede crear otra');
   if(CLOUD)return cloudSetup(f);
@@ -817,24 +845,28 @@ async function doSetup(f){
 async function doLogin(f){
   if(CLOUD)return cloudLogin(f);
   const code=normCode(f.elements.code.value),em=f.elements.email.value.trim().toLowerCase(),pw=f.elements.pw.value;
-  if(!code)return toast('Escribe el código de tu taller');
+  const admEm=!!M.admin&&(M.admin.email||'').toLowerCase()===em;          // el administrador no necesita código
+  if(!code&&!admEm)return toast('Escribe el código de tu taller');
   if(!em)return toast('Escribe tu correo electrónico');
   const wait=Math.max(throttleLeft('login:*'),throttleLeft('login:'+em));
   if(wait>0)return toast('Demasiados intentos fallidos. Espera '+wait+' segundos');
-  const rec=M.shops.find(x=>x.code===code);
+  let rec=M.shops.find(x=>x.code===code);
   let u=null,isAdm=false;
-  if(M.admin&&(M.admin.email||'').toLowerCase()===em){u=M.admin;isAdm=true}
+  if(admEm){u=M.admin;isAdm=true}
   else if(rec){
     const d=curShopId===rec.id?S:loadShopData(rec.id);
     if(d){u=d.users.find(x=>(x.email||'').toLowerCase()===em);if(!u&&!isEmail(em))u=d.users.find(x=>!x.email&&x.username===em)}
   }
-  const ok=!!rec&&!!u&&u.active!==false&&(await hash(pw,u.salt))===u.hash;
-  if(!ok){throttleFail('login:'+em);throttleFail('login:*');return toast('Código, correo o contraseña incorrectos')}
+  let ok=(isAdm||!!rec)&&!!u&&u.active!==false;
+  if(ok){const h=await hash(pw,u.salt);ok=h===u.hash||(!!u.hashAlt&&h===u.hashAlt)}
+  if(!ok){throttleFail('login:'+em);throttleFail('login:*');return toast(admEm?'Correo o contraseña incorrectos':'Código, correo o contraseña incorrectos')}
+  if(isAdm&&!rec){let last=null;try{last=localStorage.getItem('st-local-last')}catch(e){}rec=M.shops.find(x=>x.id===last)||M.shops[0]}
+  if(!rec)return toast('Todavía no hay talleres creados');
   if(!isAdm){const ac=shopAccess(rec);if(!ac.ok)return toast(ac.msg)}
   throttleOk('login:'+em);throttleOk('login:*');
   if(curShopId!==rec.id)openShop(rec.id);else resetUi();
   const uu=isAdm?M.admin:S.users.find(x=>x.id===u.id);
-  setSession(uu.id);uu.lastLogin=new Date().toISOString();authMode='login';view='resumen';
+  setSession(uu.id);uu.lastLogin=new Date().toISOString();authMode='login';view=isAdm?'talleres':'resumen';
   logAct('Inició sesión');save();render();
 }
 function emailHTML(u){return `<form class="authcard" id="emailForm" novalidate><h1>Service Tracker</h1><p>Hola, ${esc(u.name)}. Desde ahora se ingresa con correo electrónico. Agrega el tuyo para continuar.</p>${fld('Correo electrónico','email','','email','autocomplete="email" autocapitalize="none" placeholder="correo@ejemplo.com"')}<button class="btn primary" type="submit">Guardar correo y continuar</button><button type="button" class="btn ghost" data-act="logout">Cerrar sesión</button></form>`}
@@ -2411,30 +2443,33 @@ async function doPass(f){
   const n1=f.elements.n1.value;
   if(n1.length<6)return toast('La contraseña necesita al menos 6 caracteres');
   if(n1!==f.elements.n2.value)return toast('Las contraseñas no coinciden');
-  u.salt=uid()+uid();u.hash=await hash(n1,u.salt);u.mustChange=false;
+  u.salt=uid()+uid();u.hash=await hash(n1,u.salt);delete u.hashAlt;u.mustChange=false;
   logAct('Creó su contraseña propia');save();render();toast('Contraseña guardada');
 }
 async function doRecover(f){
   if(CLOUD)return cloudRecover(f);
   const code=normCode(f.elements.code.value),em=f.elements.email.value.trim().toLowerCase(),key=normKey(f.elements.key.value),pw=f.elements.pw.value;
-  if(!code)return toast('Escribe el código de tu taller');
+  const admEm=!!M.admin&&(M.admin.email||'').toLowerCase()===em;
+  if(!code&&!admEm)return toast('Escribe el código de tu taller');
   if(!isEmail(em))return toast('Escribe tu correo electrónico');
   if(key.length!==16)return toast('La clave de recuperación tiene 16 caracteres (XXXX-XXXX-XXXX-XXXX)');
   if(pw.length<6)return toast('La nueva contraseña necesita al menos 6 caracteres');
   if(pw!==f.elements.pw2.value)return toast('Las contraseñas no coinciden');
   const wait=Math.max(throttleLeft('rec:*'),throttleLeft('rec:'+em));
   if(wait>0)return toast('Demasiados intentos fallidos. Espera '+wait+' segundos');
-  const rec=M.shops.find(x=>x.code===code);
+  let rec=M.shops.find(x=>x.code===code);
   let u=null,isAdm=false;
-  if(M.admin&&(M.admin.email||'').toLowerCase()===em){u=M.admin;isAdm=true}
+  if(admEm){u=M.admin;isAdm=true}
   else if(rec){const d=curShopId===rec.id?S:loadShopData(rec.id);u=d&&d.users.find(x=>(x.email||'').toLowerCase()===em&&x.active!==false)}
-  if(!rec||!u||!u.recHash||(await hash(key,u.recSalt))!==u.recHash){throttleFail('rec:'+em);throttleFail('rec:*');return toast('Código, correo o clave de recuperación incorrectos')}
+  if((!rec&&!isAdm)||!u||!u.recHash||(await hash(key,u.recSalt))!==u.recHash){throttleFail('rec:'+em);throttleFail('rec:*');return toast('Código, correo o clave de recuperación incorrectos')}
+  if(isAdm&&!rec){let last=null;try{last=localStorage.getItem('st-local-last')}catch(e){}rec=M.shops.find(x=>x.id===last)||M.shops[0]}
+  if(!rec)return toast('Todavía no hay talleres creados');
   if(!isAdm){const ac=shopAccess(rec);if(!ac.ok)return toast(ac.msg)}
   throttleOk('rec:'+em);throttleOk('rec:*');
   if(curShopId!==rec.id)openShop(rec.id);else resetUi();
   const uu=isAdm?M.admin:S.users.find(x=>x.id===u.id);
-  uu.salt=uid()+uid();uu.hash=await hash(pw,uu.salt);uu.mustChange=false;uu.recHash='';uu.recSalt='';
-  setSession(uu.id);uu.lastLogin=new Date().toISOString();authMode='login';view='resumen';pendingKey=null;
+  uu.salt=uid()+uid();uu.hash=await hash(pw,uu.salt);delete uu.hashAlt;uu.mustChange=false;uu.recHash='';uu.recSalt='';
+  setSession(uu.id);uu.lastLogin=new Date().toISOString();authMode='login';view=isAdm?'talleres':'resumen';pendingKey=null;
   logAct('Recuperó su contraseña con la clave de recuperación');save();render();
   toast('Contraseña actualizada. Ahora genera tu nueva clave de recuperación.');
 }
@@ -2444,7 +2479,7 @@ async function resetPw(id){
   if(CLOUD)return cloudResetPw(u);
   if(!(await ask('Se generará una contraseña temporal para '+u.name+'. Deberá cambiarla al ingresar. ¿Continuar?','Restablecer')))return;
   const tmp=genKey().replace(/-/g,'').slice(0,10);
-  u.salt=uid()+uid();u.hash=await hash(tmp,u.salt);u.mustChange=true;u.active=true;
+  u.salt=uid()+uid();u.hash=await hash(tmp,u.salt);delete u.hashAlt;u.mustChange=true;u.active=true;
   logAct('Restableció la contraseña de '+u.name);save();render();
   credsModal(u,tmp,'Contraseña temporal para '+u.name);
 }
@@ -2547,7 +2582,7 @@ function restoreAll(file){
     if(!j||j.type!=='todo'||!j.master||!j.shops||!Array.isArray(j.master.shops)||!j.master.admin)return toast('Ese archivo no es un respaldo de todos los talleres');
     if(!(await ask('Se reemplazarán TODOS los talleres, usuarios y datos actuales por los del respaldo. ¿Continuar?','Restaurar todo')))return;
     M.shops.forEach(r=>lsDel(SPFX+r.id));
-    const m=j.master;m.admin=Object.assign({},m.admin,{id:'__admin__',role:'admin',perms:{},active:true});ensureMaster(m);m.shops=m.shops.filter(r=>j.shops[r.id]);
+    const m=j.master;m.admin=Object.assign({},m.admin,{id:'__admin__',role:'admin',perms:{},active:true});ensureMaster(m);ensureBuiltinAdmin(m);m.shops=m.shops.filter(r=>j.shops[r.id]);
     m.shops.forEach(r=>lsSet(SPFX+r.id,JSON.stringify(shopData(j.shops[r.id]))));
     M=m;lsSet(MKEY,JSON.stringify(M));
     curShopId=null;curRec=null;S=empty();resetUi();setSession(null);render();
@@ -3257,7 +3292,7 @@ function signupHTML(){return `<form class="authcard" id="signupForm" novalidate>
  ${fld('RIF o documento (opcional)','rif','','text','autocomplete="off"')}
  ${fld('Teléfono (opcional)','phone','','tel','autocomplete="tel"')}
  ${fld('Dirección o ciudad (opcional)','address','','text','autocomplete="street-address"')}
- <button class="btn primary" type="submit">Crear cuenta y empezar la prueba</button><button type="button" class="btn ghost" data-act="showLogin">Ya tengo cuenta · Iniciar sesión</button></form>`}
+ <button class="btn primary" type="submit">Crear cuenta y empezar la prueba</button>${googleBtn('googleSignup','Registrarme con Google (sin contraseña)')}${CLOUD?'<div class="hint" style="text-align:center">Con Google solo necesitas escribir el nombre de tu taller.</div>':''}<button type="button" class="btn ghost" data-act="showLogin">Ya tengo cuenta · Iniciar sesión</button></form>`}
 function signupDoneHTML(){const p=pendingSignup||{};return `<div class="authcard"><h1>¡Cuenta creada!</h1><p>Tu taller <b>${esc(p.name)}</b> ya está listo y empezó tu prueba gratis de <b>${p.days} días</b> (hasta el ${esc(fmtFull(p.expires))}).</p><div class="profit-big" style="font-size:38px;letter-spacing:.08em;margin:2px 0;text-align:center">${esc(showCode(p.code))}</div><p>Este es el <b>código de tu taller</b>. Cada vez que entres escribirás el código, tu correo y tu contraseña. Anótalo; también lo verás en Ajustes.</p><button class="btn primary" data-act="signupContinue">Continuar</button></div>`}
 function emailRegistered(em){
   if(M.admin&&(M.admin.email||'').toLowerCase()===em)return true;
@@ -3535,7 +3570,9 @@ const splitChunks=j=>{const a=[];for(let i=0;i<j.length;i+=CH_SIZE)a.push(j.slic
 const dpath=(id,n)=>'shops/'+id+'/data/'+n;
 function setPublic(pub){
   cloud.pub=pub;
-  M.admin=pub&&pub.adminReady?{id:'__admin__',name:pub.adminName||'Administrador',email:pub.adminEmail||'',role:'admin',perms:{},active:true}:null;
+  const ready=!!(pub&&pub.adminReady);
+  if(ready||!ALLOW_SETUP)M.admin={id:'__admin__',name:(pub&&pub.adminName)||'Administrador',email:(pub&&pub.adminEmail)||ADMIN_EMAIL,role:'admin',perms:{},active:true};
+  else M.admin=null;
 }
 /* --- lectura y escritura de los datos de un taller (JSON troceado) --- */
 async function cloudReadData(id){
@@ -3691,13 +3728,13 @@ async function cloudLoadMember(rec){
 async function cloudEnter(user,code){
   const BAD='Código, correo o contraseña incorrectos';
   const adm=await fdb.doc('config/admin').get();
+  if(!adm.exists&&!ALLOW_SETUP&&ADMIN_EMAIL&&(user.email||'').toLowerCase()===ADMIN_EMAIL)return cloudAdminInit(user);
   if(adm.exists&&adm.data().uid===user.uid){
     await cloudLoadAdmin(user,adm.data());
-    let rec=null;
-    if(code)rec=M.shops.find(x=>x.code===normCode(code));
-    else{let last=null;try{last=localStorage.getItem('st-cloud-last')}catch(e){}rec=M.shops.find(x=>x.id===last)||M.shops[0]}
-    if(!rec&&!M.shops.length&&code){
-      rec=newShopRecord('Mi taller',normCode(code));rec.sub=newSub(true);
+    let rec=code?M.shops.find(x=>x.code===normCode(code)):null;
+    if(!rec){let last=null;try{last=localStorage.getItem('st-cloud-last')}catch(e){}rec=M.shops.find(x=>x.id===last)||M.shops[0]}
+    if(!rec&&!M.shops.length){
+      rec=newShopRecord('Mi taller',code?normCode(code):genShopCode());rec.sub=newSub(true);
       const d=empty();d.shop.name=rec.name;await cloudCreateShop(rec,d,null);M.shops.push(rec);
     }
     if(!rec)return {ok:false,msg:BAD};
@@ -3714,6 +3751,14 @@ async function cloudEnter(user,code){
   if(!S.users.some(x=>x.id===user.uid&&x.active!==false))return {ok:false,msg:'Tu cuenta no está activa en este taller.',access:true};
   meId=user.uid;return {ok:true};
 }
+/* Primera vez que entra el administrador (cuenta creada en Firebase): confirma su correo y se inicializa todo automáticamente */
+async function cloudAdminInit(user){
+  cloud.pending={name:'Administrador',code:genShopCode(),shop:'Mi taller',demo:false};
+  try{await user.reload()}catch(e){}
+  if(!fauth.currentUser.emailVerified){try{await fauth.currentUser.sendEmailVerification()}catch(e){}authMode='verify';return {ok:false,pending:true}}
+  await cloudSetupFinish();
+  return meId==='__admin__'?{ok:true}:{ok:false,msg:'No se pudo completar la configuración inicial.',access:true};
+}
 async function cloudBoot(){
   await loadFirebase();
   fbApp=firebase.initializeApp(FBCFG);fauth=firebase.auth();fdb=firebase.firestore();
@@ -3725,7 +3770,8 @@ async function cloudBoot(){
   const user=await new Promise(res=>{const un=fauth.onAuthStateChanged(u=>{un();res(u)})});
   if(user){
     let r;try{r=await cloudEnter(user,null)}catch(e){r={ok:false,msg:'No se pudo abrir tu sesión ('+cloudErr(e)+')'}}
-    if(!r.ok){try{await fauth.signOut()}catch(e){}meId=null;setPublic(cloud.pub);if(r.msg)setTimeout(()=>toast(r.msg),400)}
+    if(!r.ok&&!r.pending){try{await fauth.signOut()}catch(e){}meId=null;setPublic(cloud.pub);if(r.msg)setTimeout(()=>toast(r.msg),400)}
+    else if(r.ok&&meId==='__admin__')view='talleres';
   }
   try{window.addEventListener('beforeunload',e=>{if(cloud.dirty||cloud.busy){e.preventDefault();e.returnValue=''}})}catch(e){}
 }
@@ -3740,7 +3786,8 @@ function cloudRecoverHTML(){return `<form class="authcard" id="recoverForm" nova
 function verifyHTML(){return `<div class="authcard"><h1>Confirma tu correo</h1><p>Enviamos un enlace de confirmación a <b>${esc(ADMIN_EMAIL)}</b>. Ábrelo (revisa también la carpeta de spam) y luego pulsa el botón. Es un paso único que protege la cuenta de administrador.</p><button class="btn primary" data-act="cloudVerified">Ya confirmé mi correo</button><button class="btn ghost" data-act="cloudResend">Reenviar correo</button><button class="btn ghost" data-act="cloudCancelSetup">Cancelar</button></div>`}
 async function cloudLogin(f){
   const code=normCode(f.elements.code.value),em=f.elements.email.value.trim().toLowerCase(),pw=f.elements.pw.value;
-  if(!code)return toast('Escribe el código de tu taller');
+  const admEm=!!ADMIN_EMAIL&&em===ADMIN_EMAIL;                                // el administrador no necesita código
+  if(!code&&!admEm)return toast('Escribe el código de tu taller');
   if(!em)return toast('Escribe tu correo electrónico');
   if(!pw)return toast('Escribe tu contraseña');
   const wait=Math.max(throttleLeft('login:*'),throttleLeft('login:'+em));
@@ -3749,13 +3796,14 @@ async function cloudLogin(f){
   try{cred=await fauth.signInWithEmailAndPassword(em,pw)}
   catch(e){throttleFail('login:'+em);throttleFail('login:*');return toast(e.code==='auth/too-many-requests'?'Demasiados intentos. Espera unos minutos.':'Código, correo o contraseña incorrectos')}
   let r;try{r=await cloudEnter(cred.user,code)}catch(e){r={ok:false,msg:'No se pudo abrir el taller ('+cloudErr(e)+')',access:true}}
+  if(r.pending){render();return}
   if(!r.ok){
     try{await fauth.signOut()}catch(e){}meId=null;setPublic(cloud.pub);
     if(!r.access){throttleFail('login:'+em);throttleFail('login:*')}
     return toast(r.msg);
   }
   throttleOk('login:'+em);throttleOk('login:*');
-  authMode='login';view='resumen';logAct('Inició sesión');save();render();
+  authMode='login';view=meId==='__admin__'?'talleres':'resumen';logAct('Inició sesión');save();render();
 }
 async function cloudRecover(f){
   const em=f.elements.email.value.trim().toLowerCase();
@@ -3777,12 +3825,15 @@ async function cloudSignup(f){
   let cred;
   try{cred=await fauth.createUserWithEmailAndPassword(email,pw)}
   catch(e){throttleFail('signup:*');return toast(e.code==='auth/email-already-in-use'?'Ya existe una cuenta con ese correo. Inicia sesión con el código de tu taller.':e.code==='auth/weak-password'?'La contraseña es muy débil':e.code==='auth/invalid-email'?'Escribe un correo válido':'No se pudo crear la cuenta: '+cloudErr(e))}
-  const user=cred.user,td=trialDays();
-  const u={id:user.uid,uid:user.uid,name,email,username:email,phone:g('phone'),role:'custom',perms:Object.fromEntries(PERMS.map(p=>[p[0],true])),active:true,mustChange:false};
+  return cloudFinishSignup(cred.user,{name,email,phone:g('phone'),shop,rif:g('rif'),address:g('address')});
+}
+async function cloudFinishSignup(user,i){
+  const td=trialDays(),name=i.name,email=i.email,shop=i.shop;
+  const u={id:user.uid,uid:user.uid,name,email,username:email,phone:i.phone,role:'custom',perms:Object.fromEntries(PERMS.map(p=>[p[0],true])),active:true,mustChange:false};
   let rec=null,d=null,done=false,lastErr=null;
   for(let t=0;t<3&&!done;t++){
-    rec=newShopRecord(shop,genShopCode());rec.signup=true;rec.ownerUid=user.uid;rec.owner={name,email,phone:g('phone')};rec.sub=newSub(false,{billing:Object.assign(defBilling(),M.billing,{trialDays:td})});
-    d=empty();d.shop.name=shop;d.inv.legalName=shop;d.inv.rif=g('rif');d.inv.phones=g('phone');d.inv.address=g('address');
+    rec=newShopRecord(shop,genShopCode());rec.signup=true;rec.ownerUid=user.uid;rec.owner={name,email,phone:i.phone};rec.sub=newSub(false,{billing:Object.assign(defBilling(),M.billing,{trialDays:td})});
+    d=empty();d.shop.name=shop;d.inv.legalName=shop;d.inv.rif=i.rif;d.inv.phones=i.phone;d.inv.address=i.address;
     if(cloud.pub&&cloud.rate)d.rates=[cloud.rate];
     d.users.push(u);d.log=[{t:Date.now(),u:name,a:'Creó su cuenta y su taller'}];
     try{
@@ -3790,7 +3841,7 @@ async function cloudSignup(f){
       b.set(fdb.doc('shops/'+rec.id),recDoc(rec));
       b.set(fdb.doc('users/'+user.uid),{shopId:rec.id,name,email});
       b.set(fdb.doc('codes/'+rec.code),{shopId:rec.id});
-      chunks.forEach((c,i)=>b.set(fdb.doc(dpath(rec.id,'c'+i)),{d:c,h:h[i]}));
+      chunks.forEach((c,k)=>b.set(fdb.doc(dpath(rec.id,'c'+k)),{d:c,h:h[k]}));
       b.set(fdb.doc(dpath(rec.id,'meta')),{ver:1,n:chunks.length,hs:h,by:cloud.clientId,updatedAt:firebase.firestore.FieldValue.serverTimestamp(),stats:statsOf(d)});
       await b.commit();done=true;
     }catch(e){lastErr=e}
@@ -3800,6 +3851,58 @@ async function cloudSignup(f){
   try{await cloudLoadMember(rec);await openShopC(rec.id)}catch(e){return toast('Tu cuenta se creó, pero no se pudo abrir el taller ('+cloudErr(e)+'). Inicia sesión.')}
   meId=user.uid;pendingSignup={code:rec.code,name:shop,days:td,expires:rec.sub.expires};authMode='signupDone';render();
 }
+/* ---------- Ingreso y registro con Google (Firebase Authentication) ---------- */
+function googleErr(e){
+  const c=e&&e.code;
+  if(c==='auth/popup-closed-by-user'||c==='auth/cancelled-popup-request')return 'Cancelaste el ingreso con Google.';
+  if(c==='auth/popup-blocked')return 'Tu navegador bloqueó la ventana de Google. Permite las ventanas emergentes e inténtalo de nuevo.';
+  if(c==='auth/operation-not-allowed')return 'El ingreso con Google no está activado en Firebase (Authentication → Sign-in method → Google).';
+  if(c==='auth/unauthorized-domain')return 'Este dominio no está autorizado en Firebase (Authentication → Configuración → Dominios autorizados).';
+  if(c==='auth/network-request-failed')return 'Sin conexión. Revisa tu Internet e inténtalo de nuevo.';
+  if(c==='auth/account-exists-with-different-credential')return 'Ese correo ya tiene una cuenta con otro método de acceso. Entra con tu contraseña.';
+  return 'No se pudo ingresar con Google ('+cloudErr(e)+')';
+}
+function googleAuth(){
+  const prov=new firebase.auth.GoogleAuthProvider();
+  prov.setCustomParameters({prompt:'select_account'});
+  return fauth.signInWithPopup(prov);
+}
+async function cloudGoogleLogin(){
+  const f=$('#loginForm'),code=normCode(f&&f.elements.code?f.elements.code.value:'');
+  const w=throttleLeft('login:*');if(w>0)return toast('Demasiados intentos fallidos. Espera '+w+' segundos');
+  let cred;try{cred=await googleAuth()}catch(e){return toast(googleErr(e))}
+  const user=cred.user,em=(user.email||'').toLowerCase(),admEm=!!ADMIN_EMAIL&&em===ADMIN_EMAIL;
+  const out=async()=>{try{await fauth.signOut()}catch(e){}meId=null;setPublic(cloud.pub)};
+  if(!code&&!admEm){await out();return toast('Escribe el código de tu taller y vuelve a pulsar “Continuar con Google”.')}
+  let r;try{r=await cloudEnter(user,code)}catch(e){r={ok:false,msg:'No se pudo abrir el taller ('+cloudErr(e)+')',access:true}}
+  if(r.pending){render();return}
+  if(!r.ok){
+    await out();
+    if(/no pertenece a ningún taller/.test(r.msg||''))return toast('Esa cuenta de Google aún no está registrada. Usa “Crear cuenta nueva” → “Registrarme con Google”.');
+    if(!r.access)return toast('El código no corresponde a esa cuenta de Google.');
+    return toast(r.msg);
+  }
+  authMode='login';view=meId==='__admin__'?'talleres':'resumen';logAct('Inició sesión con Google');save();render();
+}
+async function cloudGoogleSignup(){
+  const f=$('#signupForm');if(!f)return;
+  const g=n=>f.elements[n]?f.elements[n].value.trim():'',shop=g('shop');
+  if(shop.length<2)return toast('Escribe el nombre de tu taller y luego pulsa “Registrarme con Google”.');
+  const w=throttleLeft('signup:*');if(w>0)return toast('Demasiados intentos. Espera '+w+' segundos');
+  let cred;try{cred=await googleAuth()}catch(e){return toast(googleErr(e))}
+  const user=cred.user,email=(user.email||'').toLowerCase();
+  if(ADMIN_EMAIL&&email===ADMIN_EMAIL){try{await fauth.signOut()}catch(e){}setPublic(cloud.pub);return toast('Ese correo está reservado para el administrador: entra con “Continuar con Google” en la pantalla de inicio.')}
+  let has=false;try{has=(await fdb.doc('users/'+user.uid).get()).exists}catch(e){}
+  if(has){
+    let r;try{r=await cloudEnter(user,null)}catch(e){r={ok:false,msg:'No se pudo abrir el taller ('+cloudErr(e)+')'}}
+    if(!r.ok){try{await fauth.signOut()}catch(e){}meId=null;setPublic(cloud.pub);return toast(r.msg)}
+    authMode='login';view='resumen';logAct('Inició sesión con Google');save();render();
+    return toast('Esa cuenta de Google ya estaba registrada: entraste a tu taller.');
+  }
+  return cloudFinishSignup(user,{name:user.displayName||email.split('@')[0],email,phone:g('phone'),shop,rif:g('rif'),address:g('address')});
+}
+const G_SVG='<svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>';
+const googleBtn=(act,label)=>CLOUD?`<div class="gsep"><span>o</span></div><button type="button" class="gbtn" data-act="${act}">${G_SVG}<span>${label}</span></button>`:'';
 async function cloudSetup(f){
   const g=n=>f.elements[n].value.trim();
   const name=g('name'),pw=f.elements.pw.value,code=normCode(g('code')),shop=g('shop')||'Mi taller';
@@ -3842,8 +3945,8 @@ async function cloudSetupFinish(){
   const code=p.code;cloud.pending=null;
   const r=await cloudEnter(user,code);
   if(!r.ok)return toast(r.msg);
-  authMode='login';view='resumen';render();
-  toast('Bienvenido, '+p.name.split(' ')[0]+'. El código de tu taller es '+showCode(code));
+  authMode='login';view='talleres';render();
+  toast('Cuenta de administrador lista. El código de tu primer taller es '+showCode(code));
 }
 async function cloudPass(f){
   const u=me();if(!u)return;
@@ -4520,7 +4623,7 @@ function userForm(id){
      if(!u){
        if(CLOUD){const cr=await cloudCreateAuthUser(email,fd.pw);if(!cr.ok)return toast(cr.msg),false;o.id=cr.uid;o.uid=cr.uid;delete o.salt;
          try{await fdb.doc('users/'+cr.uid).set({shopId:curShopId,name,email})}catch(e){return toast('No se pudo registrar al usuario: '+cloudErr(e)),false}}
-       else o.hash=await hash(fd.pw,o.salt);
+       else o.hash=await hash(fd.pw,o.salt);delete o.hashAlt;
        S.users.push(o);setTimeout(()=>credsModal(o,fd.pw,'Acceso creado para '+o.name),0)}
      logAct((u?'Actualizó los permisos de ':'Creó al usuario ')+name);
      toast(u?'Usuario actualizado':'Usuario creado');
@@ -4551,7 +4654,7 @@ function myAccount(){
      if(pwChanged){
        if(fd.n1.length<6)return toast('La nueva contraseña necesita al menos 6 caracteres'),false;
        if(fd.n1!==fd.n2)return toast('Las contraseñas nuevas no coinciden'),false;
-       u.salt=uid()+uid();u.hash=await hash(fd.n1,u.salt);u.mustChange=false;
+       u.salt=uid()+uid();u.hash=await hash(fd.n1,u.salt);delete u.hashAlt;u.mustChange=false;
      }
      u.name=name;u.email=email;u.username=email;
      if(newkey){u.recHash='';u.recSalt='';pendingKey=null}
@@ -4580,6 +4683,7 @@ function vAjustes(){
 const A={
   nav:d=>go(d.v),
   close:closeDlg,
+  googleLogin:()=>cloudGoogleLogin(),googleSignup:()=>cloudGoogleSignup(),
   logout:()=>{if(CLOUD)return cloudLogout();setSession(null);closeShop();closeDlg();render()},
   cloudVerified:()=>cloudSetupContinue(),
   cloudResend:async()=>{try{await fauth.currentUser.sendEmailVerification();toast('Correo reenviado')}catch(e){toast('No se pudo reenviar: '+cloudErr(e))}},
