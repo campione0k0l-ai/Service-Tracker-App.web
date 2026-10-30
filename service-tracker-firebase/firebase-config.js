@@ -13,12 +13,12 @@
    ===================================================================== */
 window.ST_CLOUD = {
   firebase: {
-    apiKey: "PEGA_AQUI_TU_API_KEY",
-    authDomain: "TU_PROYECTO.firebaseapp.com",
-    projectId: "TU_PROYECTO",
-    storageBucket: "TU_PROYECTO.appspot.com",   // opcional
-    messagingSenderId: "000000000000",          // opcional
-    appId: "1:000000000000:web:0000000000000000" // opcional
+    apiKey: "AIzaSyAngsdXRiDfSEV1acilDIUuFDRHcNI4CeQ",
+    authDomain: "service-tracker-appweb.firebaseapp.com",
+    projectId: "service-tracker-appweb",
+    storageBucket: "service-tracker-appweb.firebasestorage.app",
+    messagingSenderId: "394580108734",
+    appId: "1:394580108734:web:5c910215f3491d7f55c5ef"
   },
   adminEmail: "admin.servicetracker@gmail.com"
 };
