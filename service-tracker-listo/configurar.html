@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Configurar Firebase · Service Tracker</title>
+<style>
+body{font-family:system-ui,Segoe UI,Arial,sans-serif;background:#f3f6fb;color:#1c2a3f;margin:0;padding:24px}
+main{max-width:860px;margin:0 auto}
+h1{margin:0 0 4px}p.s{color:#566;margin:0 0 18px}
+.card{background:#fff;border:1px solid #d9e1ee;border-radius:10px;padding:18px;margin-bottom:16px}
+label{display:block;font-weight:600;margin:10px 0 4px}
+textarea,input{width:100%;box-sizing:border-box;padding:9px 10px;border:1px solid #c9d3e3;border-radius:6px;font:inherit}
+textarea{min-height:150px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px}
+button{padding:9px 14px;border-radius:6px;border:1px solid #2f6fd1;background:#2f6fd1;color:#fff;font-weight:600;cursor:pointer}
+button.g{background:#fff;color:#2f6fd1}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.err{color:#b3261e;font-weight:600;margin-top:8px}.ok{color:#1a7f4b;font-weight:600}
+ol{padding-left:20px}code{background:#eef2f8;padding:1px 6px;border-radius:4px}
+.file h3{margin:0 0 6px;font-size:16px}
+</style></head><body><main>
+<h1>Configurar Firebase</h1>
+<p class="s">Pega los datos de tu proyecto y descarga los archivos ya listos. Todo ocurre en tu navegador: no se envía nada a ningún servidor.</p>
+<div class="card"><b>Dónde sacar los datos:</b> Firebase → ⚙ Configuración del proyecto → <i>Tus apps</i> → app web <code>&lt;/&gt;</code> → “Configuración del SDK”. Copia todo el bloque <code>firebaseConfig</code>.
+<label for="cfg">1) Pega aquí tu <code>firebaseConfig</code></label>
+<textarea id="cfg" placeholder='const firebaseConfig = {
+  apiKey: "AIza...",
+  authDomain: "mi-taller.firebaseapp.com",
+  projectId: "mi-taller",
+  storageBucket: "mi-taller.appspot.com",
+  messagingSenderId: "123456789",
+  appId: "1:123456789:web:abc123"
+};'></textarea>
+<label for="mail">2) Correo de la ÚNICA cuenta de administrador</label>
+<input id="mail" type="email" value="admin.servicetracker@gmail.com" autocomplete="off">
+<div class="row"><button id="go">Generar archivos</button></div><div id="msg"></div></div>
+<div id="out" hidden>
+ <div class="card file"><h3>firebase-config.js</h3><div class="hint">Reemplaza el archivo del mismo nombre en tu carpeta.</div><textarea id="o1" readonly></textarea><div class="row"><button class="d" data-f="o1" data-n="firebase-config.js">Descargar</button><button class="g c" data-f="o1">Copiar</button></div></div>
+ <div class="card file"><h3>firestore.rules</h3><div class="hint">Reemplaza el archivo y publícalo en Firestore → Reglas → Publicar.</div><textarea id="o2" readonly></textarea><div class="row"><button class="d" data-f="o2" data-n="firestore.rules">Descargar</button><button class="g c" data-f="o2">Copiar</button></div></div>
+ <div class="card file"><h3>.firebaserc</h3><textarea id="o3" readonly style="min-height:90px"></textarea><div class="row"><button class="d" data-f="o3" data-n=".firebaserc">Descargar</button><button class="g c" data-f="o3">Copiar</button></div></div>
+ <div class="card"><b>Lo que sigue</b><ol><li>Activa <i>Authentication → Correo electrónico/contraseña</i>.</li><li>Crea <i>Firestore Database</i> en modo de producción.</li><li>Publica <code>firestore.rules</code> en la pestaña <i>Reglas</i>.</li><li>Agrega tu dominio en <i>Authentication → Configuración → Dominios autorizados</i>.</li><li>Sube la carpeta a Netlify (o <code>firebase deploy --only hosting</code>).</li><li>Abre el sitio, crea al administrador y confirma el correo que te llega.</li></ol></div>
+</div>
+<script>
+const RULES="rules_version = '2';\n\n// =====================================================================\n//  Service Tracker — reglas de seguridad de Cloud Firestore\n//\n//  QUÉ GARANTIZAN (las aplica el servidor de Google, no la app):\n//   1. Existe UNA sola cuenta de administrador. Solo puede crearla el\n//      correo que pongas abajo, con el correo CONFIRMADO, y una vez creada\n//      nadie puede crear, reemplazar ni borrar al administrador.\n//   2. Cada taller solo puede leer y escribir SUS datos. Nunca los de otro.\n//   3. Si un taller está bloqueado o su suscripción/prueba venció,\n//      Firestore le niega la lectura y escritura de sus datos.\n//   4. Un taller no puede cambiarse sus propias fechas de suscripción,\n//      su código, ni ampliar su prueba (solo el administrador).\n//   5. Cada cuenta crea como máximo un taller, con prueba gratis limitada.\n//\n//  El correo del administrador ya viene configurado (línea marcada con  <<<<<).\n//  Si quieres otro, cámbialo aquí y en firebase-config.js (mismo correo, en minúsculas).\n// =====================================================================\nservice cloud.firestore {\n  match /databases/{database}/documents {\n\n    // <<<<< Correo (en minúsculas) de la ÚNICA cuenta de administrador\n    function adminEmail() { return 'admin.servicetracker@gmail.com'; }\n\n    function signedIn() { return request.auth != null; }\n\n    function adminPath() { return /databases/$(database)/documents/config/admin; }\n    function adminExists() { return exists(adminPath()); }\n    function isAdmin() {\n      return signedIn() && adminExists() && get(adminPath()).data.uid == request.auth.uid;\n    }\n    // La cuenta del correo autorizado, con el correo ya confirmado\n    function isAdminEmail() {\n      return signedIn()\n        && request.auth.token.email == adminEmail()\n        && request.auth.token.email_verified == true;\n    }\n\n    function profilePath() { return /databases/$(database)/documents/users/$(request.auth.uid); }\n    function shopPath(shopId) { return /databases/$(database)/documents/shops/$(shopId); }\n    function memberOf(shopId) {\n      return signedIn() && exists(profilePath()) && get(profilePath()).data.shopId == shopId;\n    }\n    // Taller activo y con suscripción/prueba vigente\n    function shopOpen(shopId) {\n      return get(shopPath(shopId)).data.active == true\n        && request.time <= get(shopPath(shopId)).data.accessUntil;\n    }\n    function memberOpen(shopId) { return memberOf(shopId) && shopOpen(shopId); }\n\n    // Registro de cuenta nueva: UNA sola operación crea shops/{id}, users/{uid},\n    // codes/{código} y los datos iniciales.\n    function signupInit(shopId) {\n      return signedIn()\n        && !exists(shopPath(shopId))\n        && getAfter(shopPath(shopId)).data.ownerUid == request.auth.uid\n        && getAfter(profilePath()).data.shopId == shopId;\n    }\n\n    // ---------- Configuración global ----------\n    match /config/public {\n      allow get: if true;                                   // la pantalla de ingreso necesita saber si ya hay administrador\n      allow create: if isAdminEmail() && !adminExists();    // se crea junto con config/admin, una sola vez\n      allow update: if isAdmin();\n      allow delete, list: if false;\n    }\n    match /config/admin {\n      allow get: if signedIn();\n      allow create: if isAdminEmail() && !adminExists()\n                    && request.resource.data.uid == request.auth.uid\n                    && request.resource.data.email == adminEmail();\n      allow update: if isAdmin() && request.resource.data.uid == resource.data.uid;\n      allow delete, list: if false;                         // el administrador nunca se reemplaza ni se borra\n    }\n    match /config/billing {\n      allow get: if signedIn();\n      allow write: if isAdmin();\n    }\n    match /config/rate {\n      allow get: if signedIn();\n      allow write: if isAdmin();\n    }\n\n    // ---------- Códigos de taller (únicos) ----------\n    match /codes/{code} {\n      allow get: if isAdmin();\n      allow create: if signedIn()\n        && getAfter(shopPath(request.resource.data.shopId)).data.code == code\n        && (getAfter(shopPath(request.resource.data.shopId)).data.ownerUid == request.auth.uid || isAdmin());\n      allow delete: if isAdmin();\n      allow update, list: if false;\n    }\n\n    // ---------- Perfil de cada cuenta: a qué taller pertenece ----------\n    match /users/{uid} {\n      allow get: if signedIn() && (request.auth.uid == uid || isAdmin());\n      allow list: if isAdmin();\n      allow create: if signedIn() && (\n        ( request.auth.uid == uid\n          && !isAdminEmail()\n          && request.resource.data.keys().hasOnly(['shopId', 'name', 'email'])\n          && getAfter(shopPath(request.resource.data.shopId)).data.ownerUid == request.auth.uid )\n        || isAdmin() );\n      allow update, delete: if isAdmin();                   // nadie cambia su propio taller\n    }\n\n    // ---------- Talleres ----------\n    match /shops/{shopId} {\n      allow get: if isAdmin() || memberOf(shopId);\n      allow list: if isAdmin();\n      allow create: if signedIn() && (\n        ( request.resource.data.ownerUid == request.auth.uid\n          && request.resource.data.active == true\n          && request.resource.data.sub.paid == false\n          && request.resource.data.sub.courtesy == false\n          && request.resource.data.accessUntil <= request.time + duration.value(62, 'd')\n          && getAfter(profilePath()).data.shopId == shopId )\n        || isAdmin() );\n      allow update, delete: if isAdmin();                   // suscripción, código, bloqueo: solo el administrador\n\n      // Datos del taller (clientes, servicios, facturas…) guardados por fragmentos\n      match /data/{docId} {\n        allow read, write: if signupInit(shopId) || memberOpen(shopId) || isAdmin();\n      }\n    }\n  }\n}\n";
+const $=s=>document.querySelector(s);
+const KEYS=['apiKey','authDomain','projectId','storageBucket','messagingSenderId','appId'];
+function parse(t){const o={};for(const k of KEYS){const m=new RegExp('["\']?'+k+'["\']?\\s*:\\s*["\']([^"\']+)["\']').exec(t);if(m)o[k]=m[1].trim()}return o}
+function say(t,ok){const m=$('#msg');m.className=ok?'ok':'err';m.textContent=t}
+$('#go').onclick=()=>{
+  const c=parse($('#cfg').value),mail=$('#mail').value.trim().toLowerCase();
+  const miss=['apiKey','authDomain','projectId'].filter(k=>!c[k]);
+  if(miss.length)return say('No encontré: '+miss.join(', ')+'. Pega el bloque firebaseConfig completo.');
+  if(/^(PEGA|TU_|YOUR_)/i.test(c.apiKey))return say('Ese apiKey es de ejemplo. Pega el de tu proyecto.');
+  if(!/^[^@\s'"\\]+@[^@\s'"\\]+\.[^@\s'"\\]+$/.test(mail))return say('Escribe un correo de administrador válido.');
+  const q=v=>JSON.stringify(v);
+  const fb=KEYS.filter(k=>c[k]).map(k=>'    '+k+': '+q(c[k])).join(',\n');
+  $('#o1').value='/* Service Tracker — conexión con Firebase (generado) */\nwindow.ST_CLOUD = {\n  firebase: {\n'+fb+'\n  },\n  adminEmail: '+q(mail)+'\n};\n';
+  $('#o2').value=RULES.replace(/(function adminEmail\(\) \{ return ')[^']*(';)/,'$1'+mail+'$2');
+  $('#o3').value=JSON.stringify({projects:{default:c.projectId}},null,2)+'\n';
+  $('#out').hidden=false;say('Listo. Descarga los 3 archivos y sigue los pasos de abajo.',true);
+};
+document.addEventListener('click',e=>{
+  const b=e.target.closest('button');if(!b||!b.dataset.f)return;
+  const t=$('#'+b.dataset.f).value;
+  if(b.classList.contains('d')){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([t],{type:'text/plain'}));a.download=b.dataset.n;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},500)}
+  else{(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>say('Copiado',true),()=>{$('#'+b.dataset.f).select();say('Selecciona y copia con Ctrl+C')})}
+});
+</script></main></body></html>

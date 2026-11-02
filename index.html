@@ -1687,7 +1687,7 @@ function printRep(){
 }
 async function saveRepHtml(){
   if(!need('reports.view'))return;
-  const html='<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>Reporte de servicios</title><style>'+REP_CSS+'@page{size:landscape;margin:12mm}body{margin:16px}</style></head><body>'+repDocHTML()+'</body></html>';
+ const html = `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>Reporte de servicios</title><style>${REP_CSS}@page{size:landscape;margin:12mm}body{margin:16px}</style></head><body>${repDocHTML()}</body></html>`;
   await saveFile(new Blob([html],{type:'text/html'}),'reporte-servicios-'+today()+'.html');
 }
 
@@ -3004,13 +3004,13 @@ function vTalleres(){
   const rows=M.shops.map(r=>({r,st:shopStats(r)})),act=rows.filter(x=>x.r.active!==false).length;
   const kp=(l,v)=>`<div class="kpi"><span>${l}</span><b>${v}</b></div>`;
   let h=head('Talleres','Cada taller tiene su propio código, sus datos y sus usuarios; la información nunca se mezcla entre talleres',
-   `<button class="btn primary" data-act="shopNew">Nuevo taller</button><button class="btn" data-act="rateAll">Aplicar la tasa a todos</button><button class="btn" data-act="backupEverything">Respaldo de todos</button><button class="btn" data-act="restoreAllPick">Restaurar todos</button><input type="file" id="restoreAllFile" accept=".json,application/json" hidden>`);
+   `<button class="btn primary" data-act="shopNew">Nuevo taller</button>${CLOUD?'<button class="btn" data-act="shopsRefresh">Actualizar lista</button>':''}<button class="btn" data-act="rateAll">Aplicar la tasa a todos</button><button class="btn" data-act="backupEverything">Respaldo de todos</button><button class="btn" data-act="restoreAllPick">Restaurar todos</button><input type="file" id="restoreAllFile" accept=".json,application/json" hidden>`);
   h+='<div class="kpis">'+kp('Talleres activos',act+' de '+rows.length)+kp('Usuarios en total',sum(rows,x=>x.st.users))+kp('Facturado este mes',bi(sum(rows,x=>x.st.month)))+kp('Por cobrar (todos)',bi(sum(rows,x=>x.st.debt)))+'</div>';
   h+=`<section class="panel"><div class="tablewrap"><table><thead><tr><th>Taller</th><th>Código</th><th>Estado</th><th class="num">Usuarios</th><th class="num">Clientes</th><th class="num">Servicios activos</th><th class="num">Facturado del mes</th><th class="num">Por cobrar</th><th></th></tr></thead><tbody>${rows.map(({r,st})=>{
     const off=MODULES.filter(m=>(r.modules||{})[m[0]]===false).length;
-    return `<tr><td><b>${esc(r.name)}</b>${r.id===curShopId?' <span class="tag pagada">Estás aquí</span>':''}<div class="hint">Creado el ${esc(fmtFull(r.created||today()))}${st.last?' · Última actividad: '+esc(fmtFull(ymd(new Date(st.last)))):''}${r.owner&&r.owner.name?' · Titular: '+esc(r.owner.name):''}${off?' · '+off+(off===1?' módulo desactivado':' módulos desactivados'):''}</div></td><td><span class="code">${esc(showCode(r.code))}</span></td><td>${subTag(subInfo(r))}</td><td class="num">${st.users}</td><td class="num">${st.clients}</td><td class="num">${st.active}</td><td class="num">${bi(st.month)}</td><td class="num">${bi(st.debt)}</td><td class="num"><div style="display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end;min-width:150px"><button class="btn sm primary" data-act="shopEnter" data-id="${r.id}">Entrar</button><button class="btn sm" data-act="shopUsers" data-id="${r.id}">Usuarios</button><button class="btn sm" data-act="shopPerms" data-id="${r.id}">Permisos</button><button class="btn sm danger" data-act="shopDel" data-id="${r.id}">Eliminar</button></div></td></tr>`;
+    return `<tr><td><b>${esc(r.name)}</b>${r.id===curShopId?' <span class="tag pagada">Estás aquí</span>':''}<div class="hint">Creado el ${esc(fmtFull(r.created||today()))}${st.last?' · Última actividad: '+esc(fmtFull(ymd(new Date(st.last)))):''}${r.owner&&r.owner.name?' · Titular: '+esc(r.owner.name):''}${off?' · '+off+(off===1?' módulo desactivado':' módulos desactivados'):''}</div></td><td><span class="code">${esc(showCode(r.code))}</span></td><td>${subTag(subInfo(r))}</td><td class="num">${st.users}</td><td class="num">${st.clients}</td><td class="num">${st.active}</td><td class="num">${bi(st.month)}</td><td class="num">${bi(st.debt)}</td><td class="num"><div style="display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end;min-width:150px"><button class="btn sm primary" data-act="shopEnter" data-id="${r.id}">Entrar</button><button class="btn sm" data-act="shopUsers" data-id="${r.id}">Usuarios y permisos</button><button class="btn sm" data-act="shopPerms" data-id="${r.id}">Permisos</button><button class="btn sm danger" data-act="shopDel" data-id="${r.id}">Eliminar</button></div></td></tr>`;
   }).join('')}</tbody></table></div></section>`;
-  h+='<p class="hint" style="margin-top:12px">Los talleres se guardan por separado en este navegador. Entra a cualquiera con “Entrar”, revisa su información y, en “Usuarios”, concede permisos a su personal. Con “Permisos” activas o desactivas módulos completos de un taller o lo suspendes.</p>';
+  h+='<p class="hint" style="margin-top:12px">'+(CLOUD?'Aquí ves todos los talleres registrados en la nube, cada uno con su información separada.':'Los talleres se guardan por separado en este navegador.')+' Con “Usuarios y permisos” abres a su personal para conceder o quitar permisos a cada persona (botón “Permisos” de cada usuario). Con “Entrar” revisas toda su información. Con “Permisos” activas o desactivas módulos completos de un taller o lo suspendes.</p>';
   return h;
 }
 async function shopEnter(id,to){
@@ -3718,6 +3718,13 @@ async function cloudLoadAdmin(user,ad){
   M.shops.forEach(r=>{cloud.lastRec[r.id]=recKey(r);cloud.lastCode[r.id]=r.code});
   cloud.lastBilling=JSON.stringify(M.billing);cloud.lastAdminName=M.admin.name;
   await Promise.all(M.shops.map(r=>fdb.doc(dpath(r.id,'meta')).get().then(x=>{r.stats=x.exists?(x.data().stats||null):null}).catch(()=>{})));
+}
+async function cloudRefreshShops(){
+  if(!CLOUD||meId!=='__admin__')return 0;
+  const sh=await fdb.collection('shops').get();let added=0;
+  sh.docs.forEach(d=>{if(M.shops.some(x=>x.id===d.id))return;const r=recFrom(d.id,d.data());M.shops.push(r);cloud.lastRec[r.id]=recKey(r);cloud.lastCode[r.id]=r.code;added++});
+  await Promise.all(M.shops.map(r=>fdb.doc(dpath(r.id,'meta')).get().then(x=>{r.stats=x.exists?(x.data().stats||null):null}).catch(()=>{})));
+  return added;
 }
 async function cloudLoadMember(rec){
   M.shops=[rec];cloud.lastRec[rec.id]=recKey(rec);
@@ -4681,7 +4688,7 @@ function vAjustes(){
 
 /* ---------- Acciones ---------- */
 const A={
-  nav:d=>go(d.v),
+  nav:d=>{go(d.v);if(d.v==='talleres'&&CLOUD&&meId==='__admin__')cloudRefreshShops().then(n=>{if(n&&view==='talleres')render()}).catch(()=>{})},
   close:closeDlg,
   googleLogin:()=>cloudGoogleLogin(),googleSignup:()=>cloudGoogleSignup(),
   logout:()=>{if(CLOUD)return cloudLogout();setSession(null);closeShop();closeDlg();render()},
@@ -4716,6 +4723,7 @@ const A={
   subHow:()=>modal('Cómo suscribirte',billingInfoHTML()||'<div class="full empty">El administrador aún no configuró los datos de pago. Comunícate con él para activar tu suscripción.</div>'),
   hideCodeNotice:()=>{M.codeNotice=false;saveMaster();render()},
   shopNew:()=>shopModal(),shopPerms:d=>shopModal(d.id),
+  shopsRefresh:async()=>{try{const n=await cloudRefreshShops();render();toast(n?('Se encontraron '+n+(n===1?' taller nuevo':' talleres nuevos')):'La lista está al día ('+M.shops.length+(M.shops.length===1?' taller)':' talleres)'))}catch(e){toast('No se pudo actualizar la lista: '+cloudErr(e))}},
   shopEnter:d=>shopEnter(d.id),shopUsers:d=>shopEnter(d.id,'usuarios'),
   shopDel:d=>shopDelModal(d.id),shopDelGo:d=>shopDelGo(d.id),
   shopGenCode:()=>{const i=$('#mf [name=code]');if(i)i.value=genShopCode()},
